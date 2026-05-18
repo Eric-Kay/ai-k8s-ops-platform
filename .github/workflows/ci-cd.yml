@@ -1,10 +1,12 @@
-name: CI/CD Pipeline
+name: AI K8s Ops Platform CI/CD
 
 on:
   push:
     branches:
       - main
   pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -13,8 +15,8 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/ai-k8s-backend
-  FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/ai-k8s-frontend
+  BACKEND_IMAGE: ghcr.io/eric-kay/ai-k8s-backend
+  FRONTEND_IMAGE: ghcr.io/eric-kay/ai-k8s-frontend
 
 jobs:
   security-scan:
@@ -22,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Trivy filesystem scan
@@ -32,38 +34,122 @@ jobs:
           scan-ref: .
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+          format: table
+          exit-code: 0
 
-      - name: Trivy config scan
+      - name: Trivy Kubernetes manifest scan
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: config
-          scan-ref: .
+          scan-ref: k8s/
           severity: HIGH,CRITICAL
+          format: table
+          exit-code: 0
+
+      - name: Trivy Terraform scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scan-ref: terraform/
+          severity: HIGH,CRITICAL
+          format: table
+          exit-code: 0
 
   build-and-push:
-    name: Build and Push Images
+    name: Build and Push Docker Images
     runs-on: ubuntu-latest
     needs: security-scan
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
+          username: Eric-Kay
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build backend image
-        run: docker build -t $BACKEND_IMAGE:latest ./backend
+        run: |
+          docker build -t $BACKEND_IMAGE:latest ./backend
 
       - name: Build frontend image
-        run: docker build -t $FRONTEND_IMAGE:latest ./frontend
+        run: |
+          docker build -t $FRONTEND_IMAGE:latest ./frontend
 
       - name: Push backend image
-        run: docker push $BACKEND_IMAGE:latest
+        run: |
+          docker push $BACKEND_IMAGE:latest
 
       - name: Push frontend image
-        run: docker push $FRONTEND_IMAGE:latest
+        run: |
+          docker push $FRONTEND_IMAGE:latest
+
+  monitoring-validation:
+    name: Monitoring Validation
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate monitoring files exist
+        run: |
+          test -f monitoring/install-monitoring.sh
+          test -f monitoring/grafana-dashboard.json
+
+      - name: Validate Grafana dashboard JSON
+        run: |
+          python -m json.tool monitoring/grafana-dashboard.json > /dev/null
+
+      - name: Check monitoring script syntax
+        run: |
+          bash -n monitoring/install-monitoring.sh
+
+  kubernetes-validation:
+    name: Kubernetes Manifest Validation
+    runs-on: ubuntu-latest
+    needs: security-scan
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install kubeconform
+        run: |
+          curl -L -o kubeconform.tar.gz https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
+          tar xf kubeconform.tar.gz
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Validate Kubernetes manifests
+        run: |
+          kubeconform -summary -strict k8s/
+
+  terraform-validation:
+    name: Terraform Validation
+    runs-on: ubuntu-latest
+    needs: security-scan
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform format check
+        run: |
+          terraform fmt -check -recursive terraform/
+
+      - name: Terraform init
+        working-directory: terraform/environments/dev
+        run: |
+          terraform init -backend=false
+
+      - name: Terraform validate
+        working-directory: terraform/environments/dev
+        run: |
+          terraform validate
