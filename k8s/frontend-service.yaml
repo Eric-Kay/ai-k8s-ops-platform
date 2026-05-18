@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-k8s-frontend
+  namespace: ai-k8s-ops
+spec:
+  selector:
+    app: ai-k8s-frontend
+  ports:
+    - protocol: TCP
+      port: 8501
+      targetPort: 8501
+  type: LoadBalancer

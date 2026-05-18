@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-k8s-frontend
+  namespace: ai-k8s-ops
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-k8s-frontend
+  template:
+    metadata:
+      labels:
+        app: ai-k8s-frontend
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: frontend
+          image: ghcr.io/eric-kay/ai-k8s-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8501
+          env:
+            - name: BACKEND_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: ai-k8s-config
+                  key: BACKEND_URL
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

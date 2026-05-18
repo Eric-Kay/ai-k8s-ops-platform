@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-k8s-config
+  namespace: ai-k8s-ops
+data:
+  BACKEND_URL: "http://ai-k8s-backend:8000"

@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ai-k8s-ingress
+  namespace: ai-k8s-ops
+spec:
+  rules:
+    - host: ai-k8s.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ai-k8s-frontend
+                port:
+                  number: 8501

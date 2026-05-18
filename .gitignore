@@ -1,0 +1,171 @@
+# =========================
+# TERRAFORM
+# =========================
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+terraform.rc
+terraform.lock.hcl
+
+# Terraform variables/secrets
+*.tfvars
+*.tfvars.json
+
+# =========================
+# PYTHON
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Pytest
+.pytest_cache/
+
+# Mypy
+.mypy_cache/
+
+# Ruff
+.ruff_cache/
+
+# Coverage
+.coverage
+coverage.xml
+htmlcov/
+
+# =========================
+# FASTAPI / STREAMLIT
+# =========================
+.streamlit/secrets.toml
+.streamlit/config.toml
+
+# =========================
+# ENV FILES & SECRETS
+# =========================
+.env
+.env.*
+*.env
+
+# Kubernetes secrets
+secrets/
+*.pem
+*.key
+*.crt
+*.p12
+*.kubeconfig
+kubeconfig
+
+# AWS credentials
+.aws/
+
+# =========================
+# DOCKER
+# =========================
+docker-compose.override.yml
+
+# =========================
+# KUBERNETES
+# =========================
+*.kubeconfig
+
+# =========================
+# IDE / EDITOR
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# =========================
+# OS FILES
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# LOGS
+# =========================
+*.log
+logs/
+
+# =========================
+# NODE
+# =========================
+node_modules/
+
+# =========================
+# TEMP FILES
+# =========================
+tmp/
+temp/
+
+# =========================
+# LOCAL DATABASES
+# =========================
+*.db
+*.sqlite3
+
+# =========================
+# MONITORING GENERATED FILES
+# =========================
+monitoring/data/
+
+# =========================
+# GITHUB ACTIONS SECRETS EXPORTS
+# =========================
+*.secret
+*.backup
+
+# =========================
+# MAC / LINUX
+# =========================
+.AppleDouble
+.LSOverride
+
+# =========================
+# WINDOWS
+# =========================
+Desktop.ini
+
+# =========================
+# TERRAFORM PLAN FILES
+# =========================
+*.tfplan
+
+# =========================
+# LOCAL TEST FILES
+# =========================
+test-output/
+# Terraform bootstrap generated files
+terraform/bootstrap/.terraform/
+terraform/bootstrap/.terraform.lock.hcl
+terraform/bootstrap/terraform.tfstate
+terraform/bootstrap/terraform.tfstate.backup
