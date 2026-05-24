@@ -27,8 +27,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@master
@@ -64,11 +63,9 @@ jobs:
     needs: security-scan
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v3
 
       - name: Terraform format check
         run: terraform fmt -check -recursive terraform/
@@ -87,8 +84,7 @@ jobs:
     needs: security-scan
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install kubeconform
         run: |
@@ -105,8 +101,7 @@ jobs:
     needs: security-scan
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Validate monitoring files
         run: |
@@ -124,8 +119,7 @@ jobs:
       - monitoring-validation
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -153,8 +147,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -163,8 +156,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v3
 
       - name: Terraform init
         working-directory: terraform/environments/dev
@@ -184,8 +176,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -193,6 +184,12 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        working-directory: terraform/environments/dev
+        run: terraform init -reconfigure
 
       - name: Update kubeconfig
         run: |
@@ -202,8 +199,7 @@ jobs:
 
       - name: Get RDS endpoint
         working-directory: terraform/environments/dev
-        run: |
-          echo "RDS_ENDPOINT=$(terraform output -raw db_endpoint)" >> $GITHUB_ENV
+        run: echo "RDS_ENDPOINT=$(terraform output -raw db_endpoint)" >> $GITHUB_ENV
 
       - name: Create PostgreSQL Kubernetes secret
         run: |
@@ -216,6 +212,13 @@ jobs:
             --from-literal=POSTGRES_DB="aik8sops" \
             --from-literal=POSTGRES_USER="aik8sadmin" \
             --from-literal=POSTGRES_PASSWORD="${{ secrets.DB_PASSWORD }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create OpenAI Kubernetes secret
+        run: |
+          kubectl create secret generic openai-secret \
+            --namespace ai-k8s-ops \
+            --from-literal=OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Create GHCR pull secret
@@ -249,8 +252,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -265,8 +267,7 @@ jobs:
             --name $EKS_CLUSTER_NAME \
             --region $AWS_REGION
 
-      - name: Install Helm
-        uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v4
 
       - name: Install monitoring stack
         run: |
