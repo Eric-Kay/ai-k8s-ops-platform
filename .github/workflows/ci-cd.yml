@@ -1,4 +1,4 @@
-name: AI K8s Ops Platform CI/CD
+name: AI K8s Ops Platform Full CI/CD
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,6 +15,8 @@ permissions:
   security-events: write
 
 env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: ai-k8s-ops-eks
   REGISTRY: ghcr.io
   BACKEND_IMAGE: ghcr.io/eric-kay/ai-k8s-backend
   FRONTEND_IMAGE: ghcr.io/eric-kay/ai-k8s-frontend
@@ -37,7 +40,7 @@ jobs:
           format: table
           exit-code: 0
 
-      - name: Trivy Kubernetes manifest scan
+      - name: Trivy Kubernetes scan
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: config
@@ -55,8 +58,8 @@ jobs:
           format: table
           exit-code: 0
 
-  build-and-push:
-    name: Build and Push Docker Images
+  terraform-validation:
+    name: Terraform Validation
     runs-on: ubuntu-latest
     needs: security-scan
 
@@ -64,50 +67,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: Eric-Kay
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
-      - name: Build backend image
-        run: |
-          docker build -t $BACKEND_IMAGE:latest ./backend
+      - name: Terraform format check
+        run: terraform fmt -check -recursive terraform/
 
-      - name: Build frontend image
-        run: |
-          docker build -t $FRONTEND_IMAGE:latest ./frontend
+      - name: Terraform init without backend
+        working-directory: terraform/environments/dev
+        run: terraform init -backend=false
 
-      - name: Push backend image
-        run: |
-          docker push $BACKEND_IMAGE:latest
-
-      - name: Push frontend image
-        run: |
-          docker push $FRONTEND_IMAGE:latest
-
-  monitoring-validation:
-    name: Monitoring Validation
-    runs-on: ubuntu-latest
-    needs: build-and-push
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Validate monitoring files exist
-        run: |
-          test -f monitoring/install-monitoring.sh
-          test -f monitoring/grafana-dashboard.json
-
-      - name: Validate Grafana dashboard JSON
-        run: |
-          python -m json.tool monitoring/grafana-dashboard.json > /dev/null
-
-      - name: Check monitoring script syntax
-        run: |
-          bash -n monitoring/install-monitoring.sh
+      - name: Terraform validate
+        working-directory: terraform/environments/dev
+        run: terraform validate
 
   kubernetes-validation:
     name: Kubernetes Manifest Validation
@@ -125,11 +97,10 @@ jobs:
           sudo mv kubeconform /usr/local/bin/
 
       - name: Validate Kubernetes manifests
-        run: |
-          kubeconform -summary -strict k8s/
+        run: kubeconform -summary -strict k8s/
 
-  terraform-validation:
-    name: Terraform Validation
+  monitoring-validation:
+    name: Monitoring Validation
     runs-on: ubuntu-latest
     needs: security-scan
 
@@ -137,19 +108,200 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Validate monitoring files
+        run: |
+          test -f monitoring/install-monitoring.sh
+          test -f monitoring/grafana-dashboard.json
+          bash -n monitoring/install-monitoring.sh
+          python -m json.tool monitoring/grafana-dashboard.json > /dev/null
+
+  build-and-push:
+    name: Build and Push Images
+    runs-on: ubuntu-latest
+    needs:
+      - terraform-validation
+      - kubernetes-validation
+      - monitoring-validation
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: Eric-Kay
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Build backend image
+        run: docker build -t $BACKEND_IMAGE:latest ./backend
+
+      - name: Build frontend image
+        run: docker build -t $FRONTEND_IMAGE:latest ./frontend
+
+      - name: Push backend image
+        run: docker push $BACKEND_IMAGE:latest
+
+      - name: Push frontend image
+        run: docker push $FRONTEND_IMAGE:latest
+
+  terraform-apply:
+    name: Terraform Apply Infrastructure
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      - name: Terraform format check
-        run: |
-          terraform fmt -check -recursive terraform/
-
       - name: Terraform init
         working-directory: terraform/environments/dev
-        run: |
-          terraform init -backend=false
+        run: terraform init -reconfigure
 
-      - name: Terraform validate
+      - name: Terraform apply
         working-directory: terraform/environments/dev
         run: |
-          terraform validate
+          terraform apply -auto-approve \
+            -var="db_password=${{ secrets.DB_PASSWORD }}" \
+            -var="aws_region=${{ env.AWS_REGION }}"
+
+  deploy-to-eks:
+    name: Deploy Application to EKS
+    runs-on: ubuntu-latest
+    needs: terraform-apply
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name $EKS_CLUSTER_NAME \
+            --region $AWS_REGION
+
+      - name: Get RDS endpoint
+        working-directory: terraform/environments/dev
+        run: |
+          echo "RDS_ENDPOINT=$(terraform output -raw db_endpoint)" >> $GITHUB_ENV
+
+      - name: Create PostgreSQL Kubernetes secret
+        run: |
+          kubectl create namespace ai-k8s-ops --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl create secret generic postgres-secret \
+            --namespace ai-k8s-ops \
+            --from-literal=POSTGRES_HOST="$RDS_ENDPOINT" \
+            --from-literal=POSTGRES_PORT="5432" \
+            --from-literal=POSTGRES_DB="aik8sops" \
+            --from-literal=POSTGRES_USER="aik8sadmin" \
+            --from-literal=POSTGRES_PASSWORD="${{ secrets.DB_PASSWORD }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create GHCR pull secret
+        run: |
+          kubectl create secret docker-registry ghcr-secret \
+            --docker-server=ghcr.io \
+            --docker-username=Eric-Kay \
+            --docker-password="${{ secrets.GHCR_TOKEN }}" \
+            --docker-email=avworho.eric@gmail.com \
+            --namespace ai-k8s-ops \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply Kubernetes manifests
+        run: kubectl apply -f k8s/
+
+      - name: Restart deployments
+        run: |
+          kubectl rollout restart deployment ai-k8s-backend -n ai-k8s-ops
+          kubectl rollout restart deployment ai-k8s-frontend -n ai-k8s-ops
+
+      - name: Wait for backend rollout
+        run: kubectl rollout status deployment ai-k8s-backend -n ai-k8s-ops --timeout=300s
+
+      - name: Wait for frontend rollout
+        run: kubectl rollout status deployment ai-k8s-frontend -n ai-k8s-ops --timeout=300s
+
+  monitoring-install:
+    name: Install and Validate Monitoring
+    runs-on: ubuntu-latest
+    needs: deploy-to-eks
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name $EKS_CLUSTER_NAME \
+            --region $AWS_REGION
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Install monitoring stack
+        run: |
+          chmod +x monitoring/install-monitoring.sh
+          bash monitoring/install-monitoring.sh
+
+      - name: Validate monitoring
+        run: |
+          kubectl get pods -n monitoring
+          kubectl get svc -n monitoring
+
+  final-validation:
+    name: Final Platform Validation
+    runs-on: ubuntu-latest
+    needs: monitoring-install
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name $EKS_CLUSTER_NAME \
+            --region $AWS_REGION
+
+      - name: Show platform status
+        run: |
+          kubectl get nodes
+          kubectl get pods -n ai-k8s-ops
+          kubectl get svc -n ai-k8s-ops
+          kubectl get hpa -n ai-k8s-ops
+          kubectl get pods -n monitoring
