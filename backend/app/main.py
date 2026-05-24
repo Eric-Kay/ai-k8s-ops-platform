@@ -14,8 +14,7 @@ app = FastAPI(
 
 @app.on_event("startup")
 def startup_event():
-    Base.metadata.create_all(bind=engine)
-    print("Database tables created successfully")
+    print("Startup completed")
 
 
 @app.on_event("startup")
