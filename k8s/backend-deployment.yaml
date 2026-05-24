@@ -53,7 +53,7 @@ spec:
                   name: openai-secret
                   key: OPENAI_API_KEY
             - name: OPENAI_MODEL
-              value: "gpt-5.5"
+              value: "gpt-4o-mini"
           readinessProbe:
             httpGet:
               path: /health

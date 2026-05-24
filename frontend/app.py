@@ -12,15 +12,23 @@ st.set_page_config(
 st.title("AI Kubernetes Operations Platform")
 st.write("AI-assisted Kubernetes troubleshooting with PostgreSQL incident history.")
 
-namespace = st.text_input("Kubernetes Namespace", value="default")
-pod_name = st.text_input("Pod Name optional")
+namespace = st.text_input("Kubernetes Namespace", value="ai-k8s-ops")
+pod_name = st.text_input("Pod Name (optional)")
 
 st.subheader("Manual Logs and Events")
 
-logs = st.text_area("Paste pod logs here", height=200)
-events = st.text_area("Paste Kubernetes events here", height=150)
+logs = st.text_area(
+    "Paste pod logs here",
+    height=200
+)
+
+events = st.text_area(
+    "Paste Kubernetes events here",
+    height=150
+)
 
 if st.button("Analyse Issue"):
+
     payload = {
         "namespace": namespace,
         "pod_name": pod_name if pod_name else None,
@@ -28,49 +36,98 @@ if st.button("Analyse Issue"):
         "events": events if events else None
     }
 
-    response = requests.post(
-        f"{BACKEND_URL}/troubleshoot",
-        json=payload,
-        timeout=60
-    )
+    with st.spinner("Analysing Kubernetes incident..."):
 
-    if response.status_code == 200:
-        data = response.json()
+        try:
+            response = requests.post(
+                f"{BACKEND_URL}/troubleshoot",
+                json=payload,
+                timeout=180
+            )
 
-        st.success(data["issue_summary"])
-        st.metric("Severity", data["severity"].upper())
+            response.raise_for_status()
 
-        st.subheader("Possible Causes")
-        for cause in data["possible_causes"]:
-            st.write(f"- {cause}")
+            data = response.json()
 
-        st.subheader("Recommended Actions")
-        for action in data["recommended_actions"]:
-            st.write(f"- {action}")
-    else:
-        st.error("Failed to analyse issue")
-        st.write(response.text)
+            st.success(data["issue_summary"])
+
+            severity = data.get("severity", "unknown").upper()
+
+            if severity == "CRITICAL":
+                st.error(f"Severity: {severity}")
+            elif severity == "HIGH":
+                st.warning(f"Severity: {severity}")
+            else:
+                st.info(f"Severity: {severity}")
+
+            st.subheader("Possible Causes")
+
+            for cause in data.get("possible_causes", []):
+                st.markdown(f"- {cause}")
+
+            st.subheader("Recommended Actions")
+
+            for action in data.get("recommended_actions", []):
+                st.markdown(f"- {action}")
+
+        except requests.exceptions.Timeout:
+            st.error(
+                "Backend analysis timed out after 180 seconds. "
+                "Check backend logs and OpenAI connectivity."
+            )
+
+        except requests.exceptions.ConnectionError:
+            st.error(
+                "Cannot connect to backend service. "
+                "Verify the backend deployment and service are running."
+            )
+
+        except requests.exceptions.HTTPError:
+            st.error("Backend returned an error.")
+            st.code(response.text)
+
+        except Exception as e:
+            st.error(f"Unexpected error: {str(e)}")
 
 st.divider()
 
 st.subheader("Incident History")
 
 if st.button("Load Incident History"):
-    response = requests.get(f"{BACKEND_URL}/history", timeout=30)
 
-    if response.status_code == 200:
-        st.dataframe(response.json())
-    else:
-        st.error("Failed to load history")
+    try:
+        response = requests.get(
+            f"{BACKEND_URL}/history",
+            timeout=30
+        )
+
+        response.raise_for_status()
+
+        history = response.json()
+
+        if history:
+            st.dataframe(history, use_container_width=True)
+        else:
+            st.info("No incident history found.")
+
+    except Exception as e:
+        st.error(f"Failed to load history: {str(e)}")
 
 st.divider()
 
 st.subheader("List Pods")
 
 if st.button("Fetch Pods"):
-    response = requests.get(f"{BACKEND_URL}/pods/{namespace}", timeout=30)
 
-    if response.status_code == 200:
+    try:
+        response = requests.get(
+            f"{BACKEND_URL}/pods/{namespace}",
+            timeout=30
+        )
+
+        response.raise_for_status()
+
         st.json(response.json())
-    else:
-        st.error("Failed to fetch pods")
+
+    except Exception as e:
+        st.error(f"Failed to fetch pods: {str(e)}")
